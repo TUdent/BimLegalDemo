@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Use correct character set. -->
+  <meta charset="utf-8">
+  <!-- Tell IE to use the latest, best version. -->
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <!-- Make the application on mobile take up the full browser screen and disable user scaling. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
+  <title>Hello World!</title>
+  <script src="../Build/Cesium/Cesium.js"></script>
+  <style>
+    
+      @import url(../Build/Cesium/Widgets/bucket.css);
+      html, body, #cesiumContainer {
+          width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+      }
+  </style>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+  <script>
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkNTk3OGJiYS1hYTIzLTQ3YjYtYjY4Yy05YjIwMzUzZGFiZjAiLCJpZCI6ODIxNywic2NvcGVzIjpbImFzciIsImdjIl0sImlhdCI6MTU1MTQ0MzUxNH0.b0xaZUH4BaWmLz4qDO-BcNcJHcNWJO7ufvNe5oQIjjg';
+var viewer = new Cesium.Viewer('cesiumContainer');
+var scene = viewer.scene;
+
+var tileset = scene.primitives.add(
+    new Cesium.Cesium3DTileset({
+        url: 'http://localhost:8080/Apps/SampleData/cadastral3/tileset7/tileset.json'
+    })
+);
+
+tileset.readyPromise.then(function(tileset) {
+    viewer.zoomTo(tileset, new Cesium.HeadingPitchRange(0.5, -0.2, tileset.boundingSphere.radius * 4.0));
+}).otherwise(function(error) {
+    console.log(error);
+});
+
+var selectedFeature;
+var picking = true;
+
+function selectFeature(feature) {
+    var element = feature.getProperty('apartment_number');
+    setElementColor(element, Cesium.Color.YELLOW);
+    selectedFeature = feature;
+}
+
+function unselectFeature(feature) {
+    if (!Cesium.defined(feature)) {
+        return;
+    }
+    var element = feature.getProperty('apartment_number');
+    setElementColor(element, Cesium.Color.WHITE);
+    if (feature === selectedFeature) {
+        selectedFeature = undefined;
+    }
+}
+
+var handler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
+handler.setInputAction(function(movement) {
+    if (!picking) {
+        return;
+    }
+
+    var feature = scene.pick(movement.endPosition);
+
+    unselectFeature(selectedFeature);
+
+    if (feature instanceof Cesium.Cesium3DTileFeature) {
+        selectFeature(feature);
+    }
+}, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+// In this tileset every feature has an "element" property which is a global ID.
+// This property is used to associate features across different tiles and LODs.
+// Workaround until 3D Tiles has the concept of global batch ids: https://github.com/AnalyticalGraphicsInc/3d-tiles/issues/265
+var elementMap = {}; // Build a map of elements to features.
+var hiddenElements = [112001, 113180, 131136, 113167, 71309, 109652, 111178, 113156, 113170, 124846, 114076, 131122, 113179, 114325, 131134, 113164, 113153, 113179, 109656, 114095, 114093, 39225, 39267, 113149, 113071, 112003, 39229, 113160, 39227, 39234, 113985, 39230, 112004, 39223];
+
+function getElement(feature) {
+    return (feature.getProperty('apartment_number'));
+}
+
+function setElementColor(element, color) {
+    var featuresToColor = elementMap[element];
+    var length = featuresToColor.length;
+    for (var i = 0; i < length; ++i) {
+        var feature = featuresToColor[i];
+        feature.color = Cesium.Color.clone(color, feature.color);
+    }
+}
+
+function unloadFeature(feature) {
+    unselectFeature(feature);
+    var element = getElement(feature);
+    var features = elementMap[element];
+    var index = features.indexOf(feature);
+    if (index > -1) {
+        features.splice(index, 1);
+    }
+}
+
+function loadFeature(feature) {
+    var element = getElement(feature);
+    var features = elementMap[element];
+    if (!Cesium.defined(features)) {
+        features = [];
+        elementMap[element] = features;
+    }
+    features.push(feature);
+
+    if (hiddenElements.indexOf(element) > -1) {
+        feature.show = false;
+    }
+}
+
+function processContentFeatures(content, callback) {
+    var featuresLength = content.featuresLength;
+    for (var i = 0; i < featuresLength; ++i) {
+        var feature = content.getFeature(i);
+        callback(feature);
+    }
+}
+
+function processTileFeatures(tile, callback) {
+    var content = tile.content;
+    var innerContents = content.innerContents;
+    if (Cesium.defined(innerContents)) {
+        var length = innerContents.length;
+        for (var i = 0; i < length; ++i) {
+            processContentFeatures(innerContents[i], callback);
+        }
+    } else {
+        processContentFeatures(content, callback);
+    }
+}
+
+tileset.tileLoad.addEventListener(function(tile) {
+    processTileFeatures(tile, loadFeature);
+});
+
+tileset.tileUnload.addEventListener(function(tile) {
+    processTileFeatures(tile, unloadFeature);
+});
+
+// HTML overlay for showing feature name on mouseover
+var nameOverlay = document.createElement('div');
+viewer.container.appendChild(nameOverlay);
+nameOverlay.className = 'backdrop';
+nameOverlay.style.display = 'none';
+nameOverlay.style.position = 'absolute';
+nameOverlay.style.bottom = '0';
+nameOverlay.style.left = '0';
+nameOverlay.style['pointer-events'] = 'none';
+nameOverlay.style.padding = '50x';
+nameOverlay.style.backgroundColor = 'black';
+
+var selected = {
+    feature: undefined,
+    originalColor: new Cesium.Color()
+};
+
+var selectedEntity = new Cesium.Entity();
+
+var clickHandler = viewer.screenSpaceEventHandler.getInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+var highlighted = {
+    feature : undefined,
+    originalColor : new Cesium.Color()
+};
+
+viewer.screenSpaceEventHandler.setInputAction(function onMouseMove(movement) {
+    // If a feature was previously highlighted, undo the highlight
+    if (Cesium.defined(highlighted.feature)) {
+        highlighted.feature.color = highlighted.originalColor;
+        highlighted.feature = undefined;
+    }
+    // Pick a new feature
+    var pickedFeature = viewer.scene.pick(movement.endPosition);
+    if (!Cesium.defined(pickedFeature)) {
+        nameOverlay.style.display = 'none';
+        return;
+    }
+    // A feature was picked, so show it's overlay content
+    nameOverlay.style.display = 'block';
+    nameOverlay.style.bottom = viewer.canvas.clientHeight - movement.endPosition.y + 'px';
+    nameOverlay.style.left = movement.endPosition.x + 'px';
+    var name = pickedFeature.getProperty('apartment_number');
+    if (!Cesium.defined(name)) {
+        name = pickedFeature.getProperty('id');
+    }
+    nameOverlay.textContent = name;
+    // Highlight the feature if it's not already selected.
+    if (pickedFeature !== selected.feature) {
+        highlighted.feature = pickedFeature;
+        Cesium.Color.clone(pickedFeature.color, highlighted.originalColor);
+        pickedFeature.color = Cesium.Color.YELLOW;
+    }
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+    // Color a feature on selection and show metadata in the InfoBox.
+    viewer.screenSpaceEventHandler.setInputAction(function onLeftClick(movement) {
+        // If a feature was previously selected, undo the highlight
+        if (Cesium.defined(selected.feature)) {
+            selected.feature.color = selected.originalColor;
+            selected.feature = undefined;
+        }
+        // Pick a new feature
+        var pickedFeature = viewer.scene.pick(movement.position);
+        if (!Cesium.defined(pickedFeature)) {
+            clickHandler(movement);
+            return;
+        }
+        // Select the feature if it's not already selected
+        if (selected.feature === pickedFeature) {
+            return;
+        }
+        selected.feature = pickedFeature;
+        // Save the selected feature's original color
+        if (pickedFeature === highlighted.feature) {
+            Cesium.Color.clone(highlighted.originalColor, selected.originalColor);
+            highlighted.feature = undefined;
+        } else {
+            Cesium.Color.clone(pickedFeature.color, selected.originalColor);
+        }
+        // Highlight newly selected feature
+        pickedFeature.color = Cesium.Color.LIME;
+        // Set feature infobox description
+        var featureName = "Apartment Right Information";
+        selectedEntity.name = featureName;
+        selectedEntity.description = 'Loading <div class="cesium-infoBox-loading"></div>';
+        viewer.selectedEntity = selectedEntity;
+        selectedEntity.description = '<table class="cesium-infoBox-defaultTable"><tbody>' +
+                                     '<tr><th>Apartment Number</th><td>' + pickedFeature.getProperty('apartment_number') + '</td></tr>' +
+                                     '<tr><th>Space Type</th><td>' + pickedFeature.getProperty('Pset_CadastralInformation.spacetype') + '</td></tr>' +
+                                     '<tr><th>Municipality</th><td>' + pickedFeature.getProperty('Pset_CadastralInformation.municipality') + '</td></tr>' +
+                                     '<tr><th>Section</th><td>' + pickedFeature.getProperty('Pset_CadastralInformation.section') + '</td></tr>' +
+                                     '<tr><th>Unique ID</th><td>' + pickedFeature.getProperty('ifc_unique_id') + '</td></tr>' +
+                                     
+                                     '</tbody></table>';
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+
+  </script>
+</body>
+</html>
