@@ -7,7 +7,11 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <!-- Make the application on mobile take up the full browser screen and disable user scaling. -->
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
-  <title>Hello World!</title>
+  <title>BimLegalDemo</title>
+
+<!--base href="http://pakhuis.tudelft.nl:8080/edu/cesium/Apps/Sandcastle/gallery/"-->
+<base href="http://pakhuis.tudelft.nl:8080/edu/cesium/Apps/">
+
   <script src="../Build/Cesium/Cesium.js"></script>
   <style>
     
@@ -26,12 +30,18 @@ var scene = viewer.scene;
 
 var tileset = scene.primitives.add(
     new Cesium.Cesium3DTileset({
-        url: 'http://localhost:8080/Apps/SampleData/cadastral3/tileset7/tileset.json'
+        url: 'http://pakhuis.tudelft.nl:8080/edu/cesium/Apps/SampleData/cadastral3/tileset7/tileset.json'
     })
 );
 
 tileset.readyPromise.then(function(tileset) {
     viewer.zoomTo(tileset, new Cesium.HeadingPitchRange(0.5, -0.2, tileset.boundingSphere.radius * 4.0));
+
+    // Override the default home button = reset to location of tileset instead of to world globe
+    viewer.homeButton.viewModel.command.beforeExecute.addEventListener(function (e) {
+        e.cancel = true;
+        viewer.zoomTo(tileset, new Cesium.HeadingPitchRange(0.5, -0.2, tileset.boundingSphere.radius * 4.0));
+    });
 }).otherwise(function(error) {
     console.log(error);
 });
@@ -243,3 +253,4 @@ viewer.screenSpaceEventHandler.setInputAction(function onMouseMove(movement) {
   </script>
 </body>
 </html>
+
